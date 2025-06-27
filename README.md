@@ -1396,3 +1396,5 @@ public class BeansFactory {
 }
 ```
 
+DI 容器在一些软件开发中已经成为了标配： [Spring IOC](https://spring.io/), [Google Guice](https://github.com/google/guice)
+
