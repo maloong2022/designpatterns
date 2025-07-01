@@ -2,7 +2,7 @@
 
 # 创建型
 
-# 单例模式
+## 单例模式
 
 ## 为什么说支持懒加载的双重检测不比饿汉式更优？
 
@@ -626,7 +626,7 @@ public class Logger {
 > [!note]
 > 实际上，枚举类型也相当于多例模式，一个类型只能对应一个对象，一个类可以创建多个对象。
 
-# 工厂模式
+## 工厂模式
 
 ## 我为什么说没事不要随便用工厂模式创建对象？
 
@@ -1398,7 +1398,7 @@ public class BeansFactory {
 
 DI 容器在一些软件开发中已经成为了标配： [Spring IOC](https://spring.io/), [Google Guice](https://github.com/google/guice)
 
-# 建造者模式
+## 建造者模式
 
 ## 详解构造函数、set方法、建造者模式三种对象创建方式
 
@@ -1917,3 +1917,684 @@ public class Demo {
 ```
 
 如果要拷贝的对象是不可变对象，浅拷贝共享不可变对象是没问题的，但对于可变对象来说，浅拷贝得到的对象和原始对象会共享部分数据，就有可能出现数据被修改的风险，也就变得复杂多了。除非像我们今天实战中举的那个例子，需要从数据库中加载 10 万条数据并构建散列表索引，操作非常耗时，这种情况下比较推荐使用浅拷贝，否则，没有充分的理由，不要为了一点点的性能提升而使用浅拷贝。
+
+
+# 结构型模式
+
+## 代理模式
+
+##  代理在RPC、缓存、监控等场景中的应用
+创建型模式主要解决对象的创建问题，封装复杂的创建过程，解耦对象的创建代码和使用代码。
+其中，单例模式用来创建全局唯一的对象。工厂模式用来创建不同但是相关类型的对象（继承同一父类或者接口的一组子类），由给定的参数来决定创建哪种类型的对象。建造者模式是用来创建复杂对象，可以通过设置不同的可选参数，“定制化”地创建不同的对象。原型模式针对创建成本比较大的对象，利用对已有对象进行复制的方式进行创建，以达到节省创建时间的目的。
+
+结构型模式。结构型模式主要总结了一些类或对象组合在一起的经典结构，这些经典的结构可以解决特定应用场景的问题。结构型模式包括：代理模式、桥接模式、装饰器模式、适配器模式、门面模式、组合模式、享元模式。
+
+### 代理模式的原理解析
+![[Fl6Xm5GjkxCaDxeGvvJ0K_Rb757u.webp]]
+
+代理模式（Proxy Design Pattern）的原理和代码实现都不难掌握。它在不改变原始类（或叫被代理类）代码的情况下，通过引入代理类来给原始类附加功能。我们通过一个简单的例子来解释一下这段话。
+
+一个性能计数器。当时我们开发了一个 MetricsCollector 类，用来收集接口请求的原始数据，比如访问时间、处理时长等。在业务系统中，我们采用如下方式来使用这个 MetricsCollector 类：
+
+```java
+public class UserController {
+  //...省略其他属性和方法...
+  private MetricsCollector metricsCollector; // 依赖注入
+
+  public UserVo login(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    // ... 省略login逻辑...
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("login", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    //...返回UserVo数据...
+  }
+
+  public UserVo register(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    // ... 省略register逻辑...
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("register", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    //...返回UserVo数据...
+  }
+}
+```
+
+很明显，上面的写法有两个问题。第一，性能计数器框架代码侵入到业务代码中，跟业务代码高度耦合。如果未来需要替换这个框架，那替换的成本会比较大。第二，收集接口请求的代码跟业务代码无关，本就不应该放到一个类中。业务类最好职责更加单一，只聚焦业务处理。
+
+为了将框架代码和业务代码解耦，代理模式就派上用场了。代理类 UserControllerProxy 和原始类 UserController 实现相同的接口 IUserController。UserController 类只负责业务功能。代理类 UserControllerProxy 负责在业务代码执行前后附加其他逻辑代码，并通过委托的方式调用原始类来执行业务代码。具体的代码实现如下所示：
+
+```java
+public interface IUserController {
+  UserVo login(String telephone, String password);
+  UserVo register(String telephone, String password);
+}
+
+public class UserController implements IUserController {
+  //...省略其他属性和方法...
+
+  @Override
+  public UserVo login(String telephone, String password) {
+    //...省略login逻辑...
+    //...返回UserVo数据...
+  }
+
+  @Override
+  public UserVo register(String telephone, String password) {
+    //...省略register逻辑...
+    //...返回UserVo数据...
+  }
+}
+
+public class UserControllerProxy implements IUserController {
+  private MetricsCollector metricsCollector;
+  private UserController userController;
+
+  public UserControllerProxy(UserController userController) {
+    this.userController = userController;
+    this.metricsCollector = new MetricsCollector();
+  }
+
+  @Override
+  public UserVo login(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    // 委托
+    UserVo userVo = userController.login(telephone, password);
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("login", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    return userVo;
+  }
+
+  @Override
+  public UserVo register(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    UserVo userVo = userController.register(telephone, password);
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("register", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    return userVo;
+  }
+}
+
+//UserControllerProxy使用举例
+//因为原始类和代理类实现相同的接口，是基于接口而非实现编程
+//将UserController类对象替换为UserControllerProxy类对象，不需要改动太多代码
+IUserController userController = new UserControllerProxy(new UserController());
+```
+
+参照基于接口而非实现编程的设计思想，将原始类对象替换为代理类对象的时候，为了让代码改动尽量少，在刚刚的代理模式的代码实现中，代理类和原始类需要实现相同的接口。但是，如果原始类并没有定义接口，并且原始类代码并不是我们开发维护的（比如它来自一个第三方的类库），我们也没办法直接修改原始类，给它重新定义一个接口。在这种情况下，我们该如何实现代理模式呢？
+
+对于这种外部类的扩展，我们一般都是采用继承的方式。这里也不例外。我们让代理类继承原始类，然后扩展附加功能。原理很简单，不需要过多解释，你直接看代码就能明白。具体代码如下所示：
+
+```java
+public class UserControllerProxy extends UserController {
+  private MetricsCollector metricsCollector;
+
+  public UserControllerProxy() {
+    this.metricsCollector = new MetricsCollector();
+  }
+
+  public UserVo login(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    UserVo userVo = super.login(telephone, password);
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("login", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    return userVo;
+  }
+
+  public UserVo register(String telephone, String password) {
+    long startTimestamp = System.currentTimeMillis();
+
+    UserVo userVo = super.register(telephone, password);
+
+    long endTimeStamp = System.currentTimeMillis();
+    long responseTime = endTimeStamp - startTimestamp;
+    RequestInfo requestInfo = new RequestInfo("register", responseTime, startTimestamp);
+    metricsCollector.recordRequest(requestInfo);
+
+    return userVo;
+  }
+}
+//UserControllerProxy使用举例
+UserController userController = new UserControllerProxy();
+```
+
+### 动态代理的原理解析
+不过，刚刚的代码实现还是有点问题。一方面，我们需要在代理类中，将原始类中的所有的方法，都重新实现一遍，并且为每个方法都附加相似的代码逻辑。另一方面，如果要添加的附加功能的类有不止一个，我们需要针对每个类都创建一个代理类。
+
+如果有 50 个要添加附加功能的原始类，那我们就要创建 50 个对应的代理类。这会导致项目中类的个数成倍增加，增加了代码维护成本。并且，每个代理类中的代码都有点像模板式的“重复”代码，也增加了不必要的开发成本。那这个问题怎么解决呢？
+
+我们可以使用动态代理来解决这个问题。所谓动态代理（Dynamic Proxy），就是我们不事先为每个原始类编写代理类，而是在运行的时候，动态地创建原始类对应的代理类，然后在系统中用代理类替换掉原始类。那如何实现动态代理呢？
+
+如果你熟悉的是 Java 语言，实现动态代理就是件很简单的事情。因为 Java 语言本身就已经提供了动态代理的语法（实际上，动态代理底层依赖的就是 Java 的反射语法）。我们来看一下，如何用 Java 的动态代理来实现刚刚的功能。具体的代码如下所示。其中，MetricsCollectorProxy 作为一个动态代理类，动态地给每个需要收集接口请求信息的类创建代理类。
+
+```java
+public class MetricsCollectorProxy {
+  private MetricsCollector metricsCollector;
+
+  public MetricsCollectorProxy() {
+    this.metricsCollector = new MetricsCollector();
+  }
+
+  public Object createProxy(Object proxiedObject) {
+    Class<?>[] interfaces = proxiedObject.getClass().getInterfaces();
+    DynamicProxyHandler handler = new DynamicProxyHandler(proxiedObject);
+    return Proxy.newProxyInstance(proxiedObject.getClass().getClassLoader(), interfaces, handler);
+  }
+
+  private class DynamicProxyHandler implements InvocationHandler {
+    private Object proxiedObject;
+
+    public DynamicProxyHandler(Object proxiedObject) {
+      this.proxiedObject = proxiedObject;
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+      long startTimestamp = System.currentTimeMillis();
+      Object result = method.invoke(proxiedObject, args);
+      long endTimeStamp = System.currentTimeMillis();
+      long responseTime = endTimeStamp - startTimestamp;
+      String apiName = proxiedObject.getClass().getName() + ":" + method.getName();
+      RequestInfo requestInfo = new RequestInfo(apiName, responseTime, startTimestamp);
+      metricsCollector.recordRequest(requestInfo);
+      return result;
+    }
+  }
+}
+
+//MetricsCollectorProxy使用举例
+MetricsCollectorProxy proxy = new MetricsCollectorProxy();
+IUserController userController = (IUserController) proxy.createProxy(new UserController());
+```
+
+实际上，Spring AOP 底层的实现原理就是基于动态代理。用户配置好需要给哪些类创建代理，并定义好在执行原始类的业务代码前后执行哪些附加功能。Spring 为这些类创建动态代理对象，并在 JVM 中替代原始类对象。原本在代码中执行的原始类的方法，被换作执行代理类的方法，也就实现了给原始类添加附加功能的目的。
+
+### 代理模式的应用场景
+代理模式的应用场景非常多，我这里列举一些比较常见的用法，希望你能举一反三地应用在你的项目开发中。
+#### 1. 业务系统的非功能性需求开发
+代理模式最常用的一个应用场景就是，在业务系统中开发一些非功能性需求，比如：监控、统计、鉴权、限流、事务、幂等、日志。我们将这些附加功能与业务功能解耦，放到代理类中统一处理，让程序员只需要关注业务方面的开发。实际上，前面举的搜集接口请求信息的例子，就是这个应用场景的一个典型例子。
+
+如果你熟悉 Java 语言和 Spring 开发框架，这部分工作都是可以在 Spring AOP 切面中完成的。前面我们也提到，Spring AOP 底层的实现原理就是基于动态代理。
+
+#### 2. 代理模式在 RPC、缓存中的应用
+实际上，RPC 框架也可以看作一种代理模式，GoF 的《设计模式》一书中把它称作远程代理。通过远程代理，将网络通信、数据编解码等细节隐藏起来。客户端在使用 RPC 服务的时候，就像使用本地函数一样，无需了解跟服务器交互的细节。除此之外，RPC 服务的开发者也只需要开发业务逻辑，就像开发本地使用的函数一样，不需要关注跟客户端的交互细节。
+
+我们再来看代理模式在缓存中的应用。假设我们要开发一个接口请求的缓存功能，对于某些接口请求，如果入参相同，在设定的过期时间内，直接返回缓存结果，而不用重新进行逻辑处理。比如，针对获取用户个人信息的需求，我们可以开发两个接口，一个支持缓存，一个支持实时查询。对于需要实时数据的需求，我们让其调用实时查询接口，对于不需要实时数据的需求，我们让其调用支持缓存的接口。那如何来实现接口请求的缓存功能呢？
+
+最简单的实现方法就是刚刚我们讲到的，给每个需要支持缓存的查询需求都开发两个不同的接口，一个支持缓存，一个支持实时查询。但是，这样做显然增加了开发成本，而且会让代码看起来非常臃肿（接口个数成倍增加），也不方便缓存接口的集中管理（增加、删除缓存接口）、集中配置（比如配置每个接口缓存过期时间）。
+
+针对这些问题，代理模式就能派上用场了，确切地说，应该是动态代理。如果是基于 Spring 框架来开发的话，那就可以在 AOP 切面中完成接口缓存的功能。在应用启动的时候，我们从配置文件中加载需要支持缓存的接口，以及相应的缓存策略（比如过期时间）等。当请求到来的时候，我们在 AOP 切面中拦截请求，如果请求中带有支持缓存的字段（比如 http://…?..&cached=true），我们便从缓存（内存缓存或者 Redis 缓存等）中获取数据直接返回。
+
+
+## 桥接模式
+
+## 如何实现支持不同类型和渠道的消息推送系统？
+### 桥接模式的原理解析
+
+桥接模式，也叫作桥梁模式，英文是 Bridge Design Pattern。这个模式可以说是 23 种设计模式中最难理解的模式之一了。我查阅了比较多的书籍和资料之后发现，对于这个模式有两种不同的理解方式。
+
+当然，这其中“最纯正”的理解方式，当属 GoF 的《设计模式》一书中对桥接模式的定义。毕竟，这 23 种经典的设计模式，最初就是由这本书总结出来的。在 GoF 的《设计模式》一书中，桥接模式是这么定义的：“Decouple an abstraction from its implementation so that the two can vary independently。”翻译成中文就是：“将抽象和实现解耦，让它们可以独立变化。”
+
+关于桥接模式，很多书籍、资料中，还有另外一种理解方式：“一个类存在两个（或多个）独立变化的维度，我们通过组合的方式，让这两个（或多个）维度可以独立进行扩展。”通过组合关系来替代继承关系，避免继承层次的指数级爆炸。这种理解方式非常类似于，我们之前讲过的“组合优于继承”设计原则，所以，这里我就不多解释了。我们重点看下 GoF 的理解方式。
+
+GoF 给出的定义非常的简短，单凭这一句话，估计没几个人能看懂是什么意思。所以，我们通过 JDBC 驱动的例子来解释一下。JDBC 驱动是桥接模式的经典应用。我们先来看一下，如何利用 JDBC 驱动来查询数据库。具体的代码如下所示：
+
+```java
+Class.forName("com.mysql.jdbc.Driver");//加载及注册JDBC驱动程序
+String url = "jdbc:mysql://localhost:3306/sample_db?user=root&password=your_password";
+Connection con = DriverManager.getConnection(url);
+Statement stmt = con.createStatement()；
+String query = "select * from test";
+ResultSet rs=stmt.executeQuery(query);
+while(rs.next()) {
+  rs.getString(1);
+  rs.getInt(2);
+}
+```
+
+如果我们想要把 MySQL 数据库换成 Oracle 数据库，只需要把第一行代码中的 com.mysql.jdbc.Driver 换成 oracle.jdbc.driver.OracleDriver 就可以了。当然，也有更灵活的实现方式，我们可以把需要加载的 Driver 类写到配置文件中，当程序启动的时候，自动从配置文件中加载，这样在切换数据库的时候，我们都不需要修改代码，只需要修改配置文件就可以了。
+
+不管是改代码还是改配置，在项目中，从一个数据库切换到另一种数据库，都只需要改动很少的代码，或者完全不需要改动代码，那如此优雅的数据库切换是如何实现的呢？
+
+源码之下无秘密。要弄清楚这个问题，我们先从 com.mysql.jdbc.Driver 这个类的代码看起。我摘抄了部分相关代码，放到了这里，你可以看一下。
+
+```java
+package com.mysql.jdbc;
+import java.sql.SQLException;
+
+public class Driver extends NonRegisteringDriver implements java.sql.Driver {
+  static {
+    try {
+      java.sql.DriverManager.registerDriver(new Driver());
+    } catch (SQLException E) {
+      throw new RuntimeException("Can't register driver!");
+    }
+  }
+
+  /**
+   * Construct a new driver and register it with DriverManager
+   * @throws SQLException if a database error occurs.
+   */
+  public Driver() throws SQLException {
+    // Required for Class.forName().newInstance()
+  }
+}
+```
+
+结合 com.mysql.jdbc.Driver 的代码实现，我们可以发现，当执行 Class.forName(“com.mysql.jdbc.Driver”) 这条语句的时候，实际上是做了两件事情。第一件事情是要求 JVM 查找并加载指定的 Driver 类，第二件事情是执行该类的静态代码，也就是将 MySQL Driver 注册到 DriverManager 类中。
+
+现在，我们再来看一下，DriverManager 类是干什么用的。具体的代码如下所示。当我们把具体的 Driver 实现类（比如，com.mysql.jdbc.Driver）注册到 DriverManager 之后，后续所有对 JDBC 接口的调用，都会委派到对具体的 Driver 实现类来执行。而 Driver 实现类都实现了相同的接口（java.sql.Driver ），这也是可以灵活切换 Driver 的原因。
+
+```java
+public class DriverManager {
+  private final static CopyOnWriteArrayList<DriverInfo> registeredDrivers = new CopyOnWriteArrayList<DriverInfo>();
+
+  //...
+  static {
+    loadInitialDrivers();
+    println("JDBC DriverManager initialized");
+  }
+  //...
+
+  public static synchronized void registerDriver(java.sql.Driver driver) throws SQLException {
+    if (driver != null) {
+      registeredDrivers.addIfAbsent(new DriverInfo(driver));
+    } else {
+      throw new NullPointerException();
+    }
+  }
+
+  public static Connection getConnection(String url, String user, String password) throws SQLException {
+    java.util.Properties info = new java.util.Properties();
+    if (user != null) {
+      info.put("user", user);
+    }
+    if (password != null) {
+      info.put("password", password);
+    }
+    return (getConnection(url, info, Reflection.getCallerClass()));
+  }
+  //...
+}
+```
+桥接模式的定义是“将抽象和实现解耦，让它们可以独立变化”。那弄懂定义中“抽象”和“实现”两个概念，就是理解桥接模式的关键。那在 JDBC 这个例子中，什么是“抽象”？什么是“实现”呢？
+
+实际上，JDBC 本身就相当于“抽象”。注意，这里所说的“抽象”，指的并非“抽象类”或“接口”，而是跟具体的数据库无关的、被抽象出来的一套“类库”。具体的 Driver（比如，com.mysql.jdbc.Driver）就相当于“实现”。注意，这里所说的“实现”，也并非指“接口的实现类”，而是跟具体数据库相关的一套“类库”。JDBC 和 Driver 独立开发，通过对象之间的组合关系，组装在一起。JDBC 的所有逻辑操作，最终都委托给 Driver 来执行。
+
+![](images/6.png)
+
+### 桥接模式的应用举例
+一个 API 接口监控告警的例子：根据不同的告警规则，触发不同类型的告警。告警支持多种通知渠道，包括：邮件、短信、微信、自动语音电话。通知的紧急程度有多种类型，包括：SEVERE（严重）、URGENCY（紧急）、NORMAL（普通）、TRIVIAL（无关紧要）。不同的紧急程度对应不同的通知渠道。比如，SERVE（严重）级别的消息会通过“自动语音电话”告知相关人员。
+
+关于发送告警信息那部分代码。我们先来看最简单、最直接的一种实现方式。代码如下所示：
+```java
+public enum NotificationEmergencyLevel {
+  SEVERE, URGENCY, NORMAL, TRIVIAL
+}
+
+public class Notification {
+  private List<String> emailAddresses;
+  private List<String> telephones;
+  private List<String> wechatIds;
+
+  public Notification() {}
+
+  public void setEmailAddress(List<String> emailAddress) {
+    this.emailAddresses = emailAddress;
+  }
+
+  public void setTelephones(List<String> telephones) {
+    this.telephones = telephones;
+  }
+
+  public void setWechatIds(List<String> wechatIds) {
+    this.wechatIds = wechatIds;
+  }
+
+  public void notify(NotificationEmergencyLevel level, String message) {
+    if (level.equals(NotificationEmergencyLevel.SEVERE)) {
+      //...自动语音电话
+    } else if (level.equals(NotificationEmergencyLevel.URGENCY)) {
+      //...发微信
+    } else if (level.equals(NotificationEmergencyLevel.NORMAL)) {
+      //...发邮件
+    } else if (level.equals(NotificationEmergencyLevel.TRIVIAL)) {
+      //...发邮件
+    }
+  }
+}
+
+//在API监控告警的例子中，我们如下方式来使用Notification类：
+public class ErrorAlertHandler extends AlertHandler {
+  public ErrorAlertHandler(AlertRule rule, Notification notification){
+    super(rule, notification);
+  }
+
+
+  @Override
+  public void check(ApiStatInfo apiStatInfo) {
+    if (apiStatInfo.getErrorCount() > rule.getMatchedRule(apiStatInfo.getApi()).getMaxErrorCount()) {
+      notification.notify(NotificationEmergencyLevel.SEVERE, "...");
+    }
+  }
+}
+```
+
+Notification 类的代码实现有一个最明显的问题，那就是有很多 if-else 分支逻辑。实际上，如果每个分支中的代码都不复杂，后期也没有无限膨胀的可能（增加更多 if-else 分支判断），那这样的设计问题并不大，没必要非得一定要摒弃 if-else 分支逻辑。
+
+不过，Notification 的代码显然不符合这个条件。因为每个 if-else 分支中的代码逻辑都比较复杂，发送通知的所有逻辑都扎堆在 Notification 类中。我们知道，类的代码越多，就越难读懂，越难修改，维护的成本也就越高。很多设计模式都是试图将庞大的类拆分成更细小的类，然后再通过某种更合理的结构组装在一起。
+
+针对 Notification 的代码，我们将不同渠道的发送逻辑剥离出来，形成独立的消息发送类（MsgSender 相关类）。其中，Notification 类相当于抽象，MsgSender 类相当于实现，两者可以独立开发，通过组合关系（也就是桥梁）任意组合在一起。所谓任意组合的意思就是，不同紧急程度的消息和发送渠道之间的对应关系，不是在代码中固定写死的，我们可以动态地去指定（比如，通过读取配置来获取对应关系）。
+
+按照这个设计思路，我们对代码进行重构。重构之后的代码如下所示：
+
+```java
+public interface MsgSender {
+  void send(String message);
+}
+
+public class TelephoneMsgSender implements MsgSender {
+  private List<String> telephones;
+
+  public TelephoneMsgSender(List<String> telephones) {
+    this.telephones = telephones;
+  }
+
+  @Override
+  public void send(String message) {
+    //...
+  }
+
+}
+
+public class EmailMsgSender implements MsgSender {
+  // 与TelephoneMsgSender代码结构类似，所以省略...
+}
+
+public class WechatMsgSender implements MsgSender {
+  // 与TelephoneMsgSender代码结构类似，所以省略...
+}
+
+public abstract class Notification {
+  protected MsgSender msgSender;
+
+  public Notification(MsgSender msgSender) {
+    this.msgSender = msgSender;
+  }
+
+  public abstract void notify(String message);
+}
+
+public class SevereNotification extends Notification {
+  public SevereNotification(MsgSender msgSender) {
+    super(msgSender);
+  }
+
+  @Override
+  public void notify(String message) {
+    msgSender.send(message);
+  }
+}
+
+public class UrgencyNotification extends Notification {
+  // 与SevereNotification代码结构类似，所以省略...
+}
+public class NormalNotification extends Notification {
+  // 与SevereNotification代码结构类似，所以省略...
+}
+public class TrivialNotification extends Notification {
+  // 与SevereNotification代码结构类似，所以省略...
+}
+```
+
+
+## 装饰器模式
+
+通过剖析Java IO类库源码学习装饰器模式
+我们通过剖析 Java IO 类的设计思想，再学习一种新的结构型模式，装饰器模式。它的代码结构跟桥接模式非常相似，不过，要解决的问题却大不相同。
+
+### Java IO 类的“奇怪”用法
+Java IO 类库非常庞大和复杂，有几十个类，负责 IO 数据的读取和写入。如果对 Java IO 类做一下分类，我们可以从下面两个维度将它划分为四类。具体如下所示：
+![](images/7.png)
+
+针对不同的读取和写入场景，Java IO 又在这四个父类基础之上，扩展出了很多子类。具体如下所示：
+![](images/8.png)
+
+在我初学 Java 的时候，曾经对 Java IO 的一些用法产生过很大疑惑，比如下面这样一段代码。我们打开文件 test.txt，从中读取数据。其中，InputStream 是一个抽象类，FileInputStream 是专门用来读取文件流的子类。BufferedInputStream 是一个支持带缓存功能的数据读取类，可以提高数据读取的效率。
+
+```java
+InputStream in = new FileInputStream("/user/wangzheng/test.txt");
+InputStream bin = new BufferedInputStream(in);
+byte[] data = new byte[128];
+while (bin.read(data) != -1) {
+  //...
+}
+```
+
+初看上面的代码，我们会觉得 Java IO 的用法比较麻烦，需要先创建一个 FileInputStream 对象，然后再传递给 BufferedInputStream 对象来使用。我在想，Java IO 为什么不设计一个继承 FileInputStream 并且支持缓存的 BufferedFileInputStream 类呢？这样我们就可以像下面的代码中这样，直接创建一个 BufferedFileInputStream 类对象，打开文件读取数据，用起来岂不是更加简单？
+
+```java
+InputStream bin = new BufferedFileInputStream("/user/wangzheng/test.txt");
+byte[] data = new byte[128];
+while (bin.read(data) != -1) {
+  //...
+}
+```
+
+### 基于继承的设计方案
+如果 InputStream 只有一个子类 FileInputStream 的话，那我们在 FileInputStream 基础之上，再设计一个孙子类 BufferedFileInputStream，也算是可以接受的，毕竟继承结构还算简单。但实际上，继承 InputStream 的子类有很多。我们需要给每一个 InputStream 的子类，再继续派生支持缓存读取的子类。
+
+除了支持缓存读取之外，如果我们还需要对功能进行其他方面的增强，比如下面的 DataInputStream 类，支持按照基本数据类型（int、boolean、long 等）来读取数据。
+
+```java
+FileInputStream in = new FileInputStream("/user/wangzheng/test.txt");
+DataInputStream din = new DataInputStream(in);
+int data = din.readInt();
+```
+
+在这种情况下，如果我们继续按照继承的方式来实现的话，就需要再继续派生出 DataFileInputStream、DataPipedInputStream 等类。如果我们还需要既支持缓存、又支持按照基本类型读取数据的类，那就要再继续派生出 BufferedDataFileInputStream、BufferedDataPipedInputStream 等 n 多类。这还只是附加了两个增强功能，如果我们需要附加更多的增强功能，那就会导致组合爆炸，类继承结构变得无比复杂，代码既不好扩展，也不好维护。
+
+### 基于装饰器模式的设计方案
+
+我们还讲到“组合优于继承”，可以“使用组合来替代继承”。针对刚刚的继承结构过于复杂的问题，我们可以通过将继承关系改为组合关系来解决。下面的代码展示了 Java IO 的这种设计思路。不过，我对代码做了简化，只抽象出了必要的代码结构，如果你感兴趣的话，可以直接去查看 JDK 源码。
+
+```java
+public abstract class InputStream {
+  //...
+  public int read(byte b[]) throws IOException {
+    return read(b, 0, b.length);
+  }
+  
+  public int read(byte b[], int off, int len) throws IOException {
+    //...
+  }
+  
+  public long skip(long n) throws IOException {
+    //...
+  }
+
+  public int available() throws IOException {
+    return 0;
+  }
+  
+  public void close() throws IOException {}
+
+  public synchronized void mark(int readlimit) {}
+    
+  public synchronized void reset() throws IOException {
+    throw new IOException("mark/reset not supported");
+  }
+
+  public boolean markSupported() {
+    return false;
+  }
+}
+
+public class BufferedInputStream extends InputStream {
+  protected volatile InputStream in;
+
+  protected BufferedInputStream(InputStream in) {
+    this.in = in;
+  }
+  
+  //...实现基于缓存的读数据接口...  
+}
+
+public class DataInputStream extends InputStream {
+  protected volatile InputStream in;
+
+  protected DataInputStream(InputStream in) {
+    this.in = in;
+  }
+  
+  //...实现读取基本类型数据的接口
+}
+```
+
+看了上面的代码，你可能会问，那装饰器模式就是简单的“用组合替代继承”吗？当然不是。从 Java IO 的设计来看，装饰器模式相对于简单的组合关系，还有两个比较特殊的地方。
+
+<font color="#ff0000">第一个比较特殊的地方是：装饰器类和原始类继承同样的父类，这样我们可以对原始类“嵌套”多个装饰器类。</font>比如，下面这样一段代码，我们对 FileInputStream 嵌套了两个装饰器类：BufferedInputStream 和 DataInputStream，让它既支持缓存读取，又支持按照基本数据类型来读取数据。
+
+```java
+InputStream in = new FileInputStream("/user/wangzheng/test.txt");
+InputStream bin = new BufferedInputStream(in);
+DataInputStream din = new DataInputStream(bin);
+int data = din.readInt();
+```
+
+<font color="#ff0000">第二个比较特殊的地方是：装饰器类是对功能的增强，这也是装饰器模式应用场景的一个重要特点。</font>实际上，符合“组合关系”这种代码结构的设计模式有很多，比如之前讲过的代理模式、桥接模式，还有现在的装饰器模式。尽管它们的代码结构很相似，但是每种设计模式的意图是不同的。就拿比较相似的代理模式和装饰器模式来说吧，代理模式中，代理类附加的是跟原始类无关的功能，而在装饰器模式中，装饰器类附加的是跟原始类相关的增强功能。
+
+```java
+// 代理模式的代码结构(下面的接口也可以替换成抽象类)
+public interface IA {
+  void f();
+}
+public class A impelements IA {
+  public void f() { //... }
+}
+public class AProxy implements IA {
+  private IA a;
+  public AProxy(IA a) {
+    this.a = a;
+  }
+  
+  public void f() {
+    // 新添加的代理逻辑
+    a.f();
+    // 新添加的代理逻辑
+  }
+}
+
+// 装饰器模式的代码结构(下面的接口也可以替换成抽象类)
+public interface IA {
+  void f();
+}
+public class A implements IA {
+  public void f() { //... }
+}
+public class ADecorator implements IA {
+  private IA a;
+  public ADecorator(IA a) {
+    this.a = a;
+  }
+  
+  public void f() {
+    // 功能增强代码
+    a.f();
+    // 功能增强代码
+  }
+}
+```
+
+实际上，如果去查看 JDK 的源码，你会发现，BufferedInputStream、DataInputStream 并非继承自 InputStream，而是另外一个叫 FilterInputStream 的类。那这又是出于什么样的设计意图，才引入这样一个类呢？
+
+我们再重新来看一下 BufferedInputStream 类的代码。InputStream 是一个抽象类而非接口，而且它的大部分函数（比如 read()、available()）都有默认实现，按理来说，我们只需要在 BufferedInputStream 类中重新实现那些需要增加缓存功能的函数就可以了，其他函数继承 InputStream 的默认实现。但实际上，这样做是行不通的。
+
+对于即便是不需要增加缓存功能的函数来说，BufferedInputStream 还是必须把它重新实现一遍，简单包裹对 InputStream 对象的函数调用。具体的代码示例如下所示。如果不重新实现，那 BufferedInputStream 类就无法将最终读取数据的任务，委托给传递进来的 InputStream 对象来完成。这一部分稍微有点不好理解，你自己多思考一下。
+
+```java
+public class BufferedInputStream extends InputStream {
+  protected volatile InputStream in;
+
+  protected BufferedInputStream(InputStream in) {
+    this.in = in;
+  }
+  
+  // f()函数不需要增强，只是重新调用一下InputStream in对象的f()
+  public void f() {
+    in.f();
+  }  
+}
+```
+
+实际上，DataInputStream 也存在跟 BufferedInputStream 同样的问题。为了避免代码重复，Java IO 抽象出了一个装饰器父类 FilterInputStream，代码实现如下所示。InputStream 的所有的装饰器类（BufferedInputStream、DataInputStream）都继承自这个装饰器父类。这样，装饰器类只需要实现它需要增强的方法就可以了，其他方法继承装饰器父类的默认实现。
+
+```java
+public class FilterInputStream extends InputStream {
+  protected volatile InputStream in;
+
+  protected FilterInputStream(InputStream in) {
+    this.in = in;
+  }
+
+  public int read() throws IOException {
+    return in.read();
+  }
+
+  public int read(byte b[]) throws IOException {
+    return read(b, 0, b.length);
+  }
+   
+  public int read(byte b[], int off, int len) throws IOException {
+    return in.read(b, off, len);
+  }
+
+  public long skip(long n) throws IOException {
+    return in.skip(n);
+  }
+
+  public int available() throws IOException {
+    return in.available();
+  }
+
+  public void close() throws IOException {
+    in.close();
+  }
+
+  public synchronized void mark(int readlimit) {
+    in.mark(readlimit);
+  }
+
+  public synchronized void reset() throws IOException {
+    in.reset();
+  }
+
+  public boolean markSupported() {
+    return in.markSupported();
+  }
+}
+```
